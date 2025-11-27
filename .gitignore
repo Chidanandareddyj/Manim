@@ -1,0 +1,13 @@
+/media/
+
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+node_modules/
+dist/
+.env
+*.log
+
+__pycache__/
+*.pyc
