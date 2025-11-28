@@ -61,35 +61,10 @@ class AccelerometerFull(ThreeDScene):
         accel_center = LEFT * 3.8
         accel_static.move_to(accel_center)
         
-        # === MOTION TRACKER (bottom left) ===
-        tracker_bg = RoundedRectangle(
-            width=2.2, height=1.4, corner_radius=0.1,
-            fill_opacity=0.15, fill_color=WHITE,
-            stroke_width=1, stroke_color="#4a5568"
-        )
-        tracker_bg.to_corner(DL, buff=0.3)
-        
-        tracker_title = Text("MOTION", font_size=10, color="#9ca3af", weight=BOLD)
-        tracker_title.next_to(tracker_bg.get_top(), DOWN, buff=0.1)
-        
-        tracker_status = Text("STILL", font_size=14, color="#22c55e", weight=BOLD)
-        tracker_status.move_to(tracker_bg.get_center())
-        
-        tracker_group = VGroup(tracker_bg, tracker_title, tracker_status)
-        
         # === LIVE GRAPHS (5-second rolling window) ===
         graph_y_positions = [1.6, 0, -1.6]
         graph_colors = ["#ef4444", "#22c55e", "#3b82f6"]
         graph_names = ["X", "Y", "Z"]
-        
-        # We'll use ValueTrackers for live data
-        time_tracker = ValueTracker(0)
-        
-        # Data storage (will be updated)
-        self.x_data = []
-        self.y_data = []
-        self.z_data = []
-        self.time_data = []
         
         # Create graph axes
         graph_axes_list = []
@@ -139,7 +114,7 @@ class AccelerometerFull(ThreeDScene):
         # ============================================================
         # SECTION 2: FIX 2D ELEMENTS TO FRAME
         # ============================================================
-        self.add_fixed_in_frame_mobjects(title, tracker_group)
+        self.add_fixed_in_frame_mobjects(title)
         for g in graph_groups:
             self.add_fixed_in_frame_mobjects(g)
         
@@ -167,19 +142,14 @@ class AccelerometerFull(ThreeDScene):
         for g in graph_groups:
             self.add_fixed_in_frame_mobjects(g)
         
-        self.play(
-            *[FadeIn(g) for g in graph_groups],
-            FadeIn(tracker_group),
-            run_time=1
-        )
+        self.play(*[FadeIn(g) for g in graph_groups], run_time=1)
         
         # Draw static signal (Z at -1g, X/Y at 0)
-        np.random.seed(42)
         static_samples = 150
         t_static = np.linspace(0, 5, static_samples)
-        x_static = 0.02 * np.random.randn(static_samples)
-        y_static = 0.02 * np.random.randn(static_samples)
-        z_static = -1.0 + 0.02 * np.random.randn(static_samples)
+        x_static = 0.04 * np.sin(2 * np.pi * 0.25 * t_static)
+        y_static = 0.04 * np.sin(2 * np.pi * 0.18 * t_static + PI / 4)
+        z_static = -1.0 + 0.03 * np.cos(2 * np.pi * 0.15 * t_static)
         
         static_lines = []
         for i, (data, axes, color) in enumerate(zip([x_static, y_static, z_static], graph_axes_list, graph_colors)):
@@ -200,11 +170,6 @@ class AccelerometerFull(ThreeDScene):
         # SCENE 2: TILT / POSTURE CHANGE (6-12s)
         # ============================================================
         
-        # Update status
-        new_status = Text("TILTING", font_size=14, color="#f59e0b", weight=BOLD)
-        new_status.move_to(tracker_status.get_center())
-        self.add_fixed_in_frame_mobjects(new_status)
-        
         tilt_text = Text("Posture Change: Tilting", font_size=20, color="#f59e0b")
         tilt_text.next_to(title, DOWN, buff=0.15)
         self.add_fixed_in_frame_mobjects(tilt_text)
@@ -212,10 +177,8 @@ class AccelerometerFull(ThreeDScene):
         self.play(
             FadeOut(intro_text),
             FadeIn(tilt_text),
-            ReplacementTransform(tracker_status, new_status),
             run_time=0.5
         )
-        tracker_status = new_status
         
         # Clear old lines
         self.play(*[FadeOut(line) for line in static_lines], run_time=0.3)
@@ -226,10 +189,11 @@ class AccelerometerFull(ThreeDScene):
         # Generate tilt data
         tilt_samples = 150
         t_tilt = np.linspace(0, 5, tilt_samples)
-        # During tilt: Z decreases (gravity component shifts), X increases slightly
-        z_tilt = -1.0 + 0.35 * np.sin(np.linspace(0, np.pi, tilt_samples)) + 0.015 * np.random.randn(tilt_samples)
-        x_tilt = 0.25 * np.sin(np.linspace(0, np.pi, tilt_samples)) + 0.015 * np.random.randn(tilt_samples)
-        y_tilt = 0.02 * np.random.randn(tilt_samples)
+        tilt_angle = PI / 5
+        theta_profile = tilt_angle * np.sin(np.linspace(0, np.pi, tilt_samples))
+        z_tilt = -np.cos(theta_profile)
+        x_tilt = 0.8 * np.sin(theta_profile)
+        y_tilt = 0.05 * np.sin(2 * np.pi * 0.5 * t_tilt)
         
         tilt_lines = []
         for i, (data, axes, color) in enumerate(zip([x_tilt, y_tilt, z_tilt], graph_axes_list, graph_colors)):
@@ -257,8 +221,8 @@ class AccelerometerFull(ThreeDScene):
         
         # Tilt back slightly
         self.play(
-            Rotate(tilt_group, angle=-PI/10, axis=RIGHT, about_point=accel_center),
-            run_time=1
+            Rotate(tilt_group, angle=-PI/5, axis=RIGHT, about_point=accel_center),
+            run_time=1.2
         )
         
         self.wait(0.3)
@@ -267,11 +231,6 @@ class AccelerometerFull(ThreeDScene):
         # SCENE 3: WALKING - X/Y OSCILLATIONS (12-18s)
         # ============================================================
         
-        # Update status
-        walk_status = Text("WALKING", font_size=14, color="#22c55e", weight=BOLD)
-        walk_status.move_to(tracker_status.get_center())
-        self.add_fixed_in_frame_mobjects(walk_status)
-        
         walk_text = Text("Walking: X/Y Oscillate", font_size=20, color="#22c55e")
         walk_text.next_to(title, DOWN, buff=0.15)
         self.add_fixed_in_frame_mobjects(walk_text)
@@ -279,18 +238,17 @@ class AccelerometerFull(ThreeDScene):
         self.play(
             FadeOut(tilt_text),
             FadeIn(walk_text),
-            ReplacementTransform(tracker_status, walk_status),
             *[FadeOut(line) for line in tilt_lines],
             run_time=0.5
         )
-        tracker_status = walk_status
         
         # Walking data
         walk_samples = 150
         t_walk = np.linspace(0, 5, walk_samples)
-        x_walk = 0.5 * np.sin(2 * np.pi * 1.8 * t_walk) + 0.02 * np.random.randn(walk_samples)
-        y_walk = 0.35 * np.cos(2 * np.pi * 1.8 * t_walk) + 0.02 * np.random.randn(walk_samples)
-        z_walk = -0.65 + 0.15 * np.sin(2 * np.pi * 3.6 * t_walk) + 0.02 * np.random.randn(walk_samples)
+        walk_frequency = 1.8
+        x_walk = 0.55 * np.sin(2 * np.pi * walk_frequency * t_walk)
+        y_walk = 0.4 * np.cos(2 * np.pi * walk_frequency * t_walk)
+        z_walk = -0.65 + 0.18 * np.sin(2 * np.pi * 2 * walk_frequency * t_walk + PI / 4)
         
         walk_lines = []
         for i, (data, axes, color) in enumerate(zip([x_walk, y_walk, z_walk], graph_axes_list, graph_colors)):
@@ -303,12 +261,15 @@ class AccelerometerFull(ThreeDScene):
         # Bob the device
         original_pos = tilt_group.get_center()
         
+        walk_phase = ValueTracker(0)
+        
         def walk_bob(mob, dt):
-            t = self.renderer.time
+            walk_phase.increment_value(dt)
+            t = walk_phase.get_value()
             offset = np.array([
-                0.08 * np.sin(2 * np.pi * 1.8 * t),
-                0.05 * np.cos(2 * np.pi * 1.8 * t),
-                0.03 * np.sin(2 * np.pi * 3.6 * t)
+                0.08 * np.sin(2 * np.pi * walk_frequency * t),
+                0.05 * np.cos(2 * np.pi * walk_frequency * t),
+                0.03 * np.sin(2 * np.pi * 2 * walk_frequency * t)
             ])
             mob.move_to(original_pos + offset)
         
@@ -341,11 +302,6 @@ class AccelerometerFull(ThreeDScene):
         # SCENE 4: ROTATION - ALL AXES WOBBLE (18-24s)
         # ============================================================
         
-        # Update status
-        rotate_status = Text("ROTATING", font_size=14, color="#a855f7", weight=BOLD)
-        rotate_status.move_to(tracker_status.get_center())
-        self.add_fixed_in_frame_mobjects(rotate_status)
-        
         rotate_text = Text("Rotation: All Axes Wobble", font_size=20, color="#a855f7")
         rotate_text.next_to(title, DOWN, buff=0.15)
         self.add_fixed_in_frame_mobjects(rotate_text)
@@ -353,18 +309,16 @@ class AccelerometerFull(ThreeDScene):
         self.play(
             FadeOut(walk_text),
             FadeIn(rotate_text),
-            ReplacementTransform(tracker_status, rotate_status),
             *[FadeOut(line) for line in walk_lines],
             run_time=0.5
         )
-        tracker_status = rotate_status
         
         # Rotation data - all axes change
         rot_samples = 150
         t_rot = np.linspace(0, 5, rot_samples)
-        x_rot = 0.4 * np.sin(2 * np.pi * 0.8 * t_rot) + 0.3 * np.sin(2 * np.pi * 1.5 * t_rot) + 0.02 * np.random.randn(rot_samples)
-        y_rot = 0.35 * np.cos(2 * np.pi * 0.6 * t_rot) + 0.25 * np.cos(2 * np.pi * 1.2 * t_rot) + 0.02 * np.random.randn(rot_samples)
-        z_rot = -0.5 + 0.4 * np.sin(2 * np.pi * 0.5 * t_rot + PI/3) + 0.02 * np.random.randn(rot_samples)
+        x_rot = 0.4 * np.sin(2 * np.pi * 0.8 * t_rot) + 0.25 * np.sin(2 * np.pi * 1.2 * t_rot)
+        y_rot = 0.35 * np.cos(2 * np.pi * 0.6 * t_rot) + 0.2 * np.cos(2 * np.pi * 1.1 * t_rot)
+        z_rot = -0.5 + 0.4 * np.sin(2 * np.pi * 0.5 * t_rot + PI / 3)
         
         rot_lines = []
         for i, (data, axes, color) in enumerate(zip([x_rot, y_rot, z_rot], graph_axes_list, graph_colors)):
@@ -403,11 +357,6 @@ class AccelerometerFull(ThreeDScene):
         # SCENE 5: RETURN TO REST + SUMMARY (24-30s)
         # ============================================================
         
-        # Update status
-        still_status = Text("STILL", font_size=14, color="#22c55e", weight=BOLD)
-        still_status.move_to(tracker_status.get_center())
-        self.add_fixed_in_frame_mobjects(still_status)
-        
         rest_text = Text("Returning to Rest", font_size=20, color="#9ca3af")
         rest_text.next_to(title, DOWN, buff=0.15)
         self.add_fixed_in_frame_mobjects(rest_text)
@@ -415,10 +364,8 @@ class AccelerometerFull(ThreeDScene):
         self.play(
             FadeOut(rotate_text),
             FadeIn(rest_text),
-            ReplacementTransform(tracker_status, still_status),
             run_time=0.5
         )
-        tracker_status = still_status
         
         # Rotate back to original orientation
         self.play(
@@ -432,9 +379,9 @@ class AccelerometerFull(ThreeDScene):
         # Final static data
         final_samples = 100
         t_final = np.linspace(0, 5, final_samples)
-        x_final = 0.015 * np.random.randn(final_samples)
-        y_final = 0.015 * np.random.randn(final_samples)
-        z_final = -1.0 + 0.015 * np.random.randn(final_samples)
+        x_final = 0.03 * np.sin(2 * np.pi * 0.3 * t_final + PI / 5)
+        y_final = 0.03 * np.sin(2 * np.pi * 0.25 * t_final)
+        z_final = -1.0 + 0.02 * np.cos(2 * np.pi * 0.2 * t_final)
         
         final_lines = []
         for i, (data, axes, color) in enumerate(zip([x_final, y_final, z_final], graph_axes_list, graph_colors)):
