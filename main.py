@@ -37,20 +37,25 @@ class AccelerometerFull(ThreeDScene):
         # === 3D AXES (THICKER ARROWS) ===
         axis_length = 1.4
         axis_thickness = 0.045
+        palette = {
+            "x": "#4477AA",  # deep blue
+            "y": "#CCBB44",  # golden yellow
+            "z": "#66CCEE",  # sky blue
+        }
         
-        x_axis = Arrow3D(ORIGIN, RIGHT * axis_length, color="#ef4444", thickness=axis_thickness, height=0.24, base_radius=0.08)
-        y_axis = Arrow3D(ORIGIN, UP * axis_length, color="#22c55e", thickness=axis_thickness, height=0.24, base_radius=0.08)
-        z_axis = Arrow3D(ORIGIN, OUT * axis_length, color="#3b82f6", thickness=axis_thickness, height=0.24, base_radius=0.08)
+        x_axis = Arrow3D(ORIGIN, RIGHT * axis_length, color=palette["x"], thickness=axis_thickness, height=0.24, base_radius=0.08)
+        y_axis = Arrow3D(ORIGIN, UP * axis_length, color=palette["y"], thickness=axis_thickness, height=0.24, base_radius=0.08)
+        z_axis = Arrow3D(ORIGIN, OUT * axis_length, color=palette["z"], thickness=axis_thickness, height=0.24, base_radius=0.08)
         
-        x_label = Text("X", font_size=20, color="#ef4444", weight=BOLD)
+        x_label = Text("X", font_size=20, color=palette["x"], weight=BOLD)
         x_label.rotate(PI/2, axis=RIGHT)
         x_label.next_to(x_axis.get_end(), RIGHT, buff=0.08)
         
-        y_label = Text("Y", font_size=20, color="#22c55e", weight=BOLD)
+        y_label = Text("Y", font_size=20, color=palette["y"], weight=BOLD)
         y_label.rotate(PI/2, axis=RIGHT)
         y_label.next_to(y_axis.get_end(), UP, buff=0.08)
         
-        z_label = Text("Z", font_size=20, color="#3b82f6", weight=BOLD)
+        z_label = Text("Z", font_size=20, color=palette["z"], weight=BOLD)
         z_label.rotate(PI/2, axis=RIGHT)
         z_label.next_to(z_axis.get_end(), OUT, buff=0.08)
         
@@ -63,7 +68,7 @@ class AccelerometerFull(ThreeDScene):
         
         # === LIVE GRAPHS (5-second rolling window) ===
         graph_y_positions = [1.6, 0, -1.6]
-        graph_colors = ["#ef4444", "#22c55e", "#3b82f6"]
+        graph_colors = [palette["x"], palette["y"], palette["z"]]
         graph_names = ["X", "Y", "Z"]
         
         # Create graph axes
@@ -189,11 +194,11 @@ class AccelerometerFull(ThreeDScene):
         # Generate tilt data
         tilt_samples = 150
         t_tilt = np.linspace(0, 5, tilt_samples)
-        tilt_angle = PI / 5
+        tilt_angle = PI / 3
         theta_profile = tilt_angle * np.sin(np.linspace(0, np.pi, tilt_samples))
         z_tilt = -np.cos(theta_profile)
-        x_tilt = 0.8 * np.sin(theta_profile)
-        y_tilt = 0.05 * np.sin(2 * np.pi * 0.5 * t_tilt)
+        x_tilt = 1.15 * np.sin(theta_profile)
+        y_tilt = 0.12 * np.sin(2 * np.pi * 0.5 * t_tilt)
         
         tilt_lines = []
         for i, (data, axes, color) in enumerate(zip([x_tilt, y_tilt, z_tilt], graph_axes_list, graph_colors)):
@@ -205,7 +210,7 @@ class AccelerometerFull(ThreeDScene):
         
         # Animate tilt with graph
         self.play(
-            Rotate(tilt_group, angle=PI/5, axis=RIGHT, about_point=accel_center),
+            Rotate(tilt_group, angle=tilt_angle, axis=RIGHT, about_point=accel_center),
             *[Create(line, run_time=3) for line in tilt_lines],
             rate_func=linear,
             run_time=3
@@ -216,12 +221,12 @@ class AccelerometerFull(ThreeDScene):
             z_axis.animate.set_color(WHITE), run_time=0.2
         )
         self.play(
-            z_axis.animate.set_color("#3b82f6"), run_time=0.2
+            z_axis.animate.set_color(palette["z"]), run_time=0.2
         )
         
         # Tilt back slightly
         self.play(
-            Rotate(tilt_group, angle=-PI/5, axis=RIGHT, about_point=accel_center),
+            Rotate(tilt_group, angle=-tilt_angle * 0.7, axis=RIGHT, about_point=accel_center),
             run_time=1.2
         )
         
@@ -231,7 +236,7 @@ class AccelerometerFull(ThreeDScene):
         # SCENE 3: WALKING - X/Y OSCILLATIONS (12-18s)
         # ============================================================
         
-        walk_text = Text("Walking: X/Y Oscillate", font_size=20, color="#22c55e")
+        walk_text = Text("Walking: X/Y Oscillate", font_size=20, color=palette["y"])
         walk_text.next_to(title, DOWN, buff=0.15)
         self.add_fixed_in_frame_mobjects(walk_text)
         
@@ -258,20 +263,22 @@ class AccelerometerFull(ThreeDScene):
             walk_lines.append(line)
             self.add_fixed_in_frame_mobjects(line)
         
-        # Bob the device
-        original_pos = tilt_group.get_center()
-        
+        # Bob the device with reset each frame to keep axes aligned
         walk_phase = ValueTracker(0)
+        tilt_group.save_state()
         
         def walk_bob(mob, dt):
             walk_phase.increment_value(dt)
             t = walk_phase.get_value()
             offset = np.array([
-                0.08 * np.sin(2 * np.pi * walk_frequency * t),
-                0.05 * np.cos(2 * np.pi * walk_frequency * t),
-                0.03 * np.sin(2 * np.pi * 2 * walk_frequency * t)
+                0.18 * np.sin(2 * np.pi * walk_frequency * t),
+                0.12 * np.cos(2 * np.pi * walk_frequency * t),
+                0.09 * np.sin(2 * np.pi * 2 * walk_frequency * t)
             ])
-            mob.move_to(original_pos + offset)
+            mob.restore()
+            mob.shift(offset)
+            mob.rotate(0.16 * np.sin(2 * np.pi * walk_frequency * t) * dt, axis=UP, about_point=mob.get_center())
+            mob.rotate(0.1 * np.cos(2 * np.pi * walk_frequency * t) * dt, axis=RIGHT, about_point=mob.get_center())
         
         tilt_group.add_updater(walk_bob)
         
@@ -288,13 +295,13 @@ class AccelerometerFull(ThreeDScene):
             run_time=0.2
         )
         self.play(
-            x_axis.animate.set_color("#ef4444"),
-            y_axis.animate.set_color("#22c55e"),
+            x_axis.animate.set_color(palette["x"]),
+            y_axis.animate.set_color(palette["y"]),
             run_time=0.2
         )
         
         tilt_group.clear_updaters()
-        tilt_group.move_to(original_pos)
+        tilt_group.restore()
         
         self.wait(0.3)
         
@@ -316,9 +323,9 @@ class AccelerometerFull(ThreeDScene):
         # Rotation data - all axes change
         rot_samples = 150
         t_rot = np.linspace(0, 5, rot_samples)
-        x_rot = 0.4 * np.sin(2 * np.pi * 0.8 * t_rot) + 0.25 * np.sin(2 * np.pi * 1.2 * t_rot)
-        y_rot = 0.35 * np.cos(2 * np.pi * 0.6 * t_rot) + 0.2 * np.cos(2 * np.pi * 1.1 * t_rot)
-        z_rot = -0.5 + 0.4 * np.sin(2 * np.pi * 0.5 * t_rot + PI / 3)
+        x_rot = 0.6 * np.sin(2 * np.pi * 0.8 * t_rot) + 0.35 * np.sin(2 * np.pi * 1.2 * t_rot)
+        y_rot = 0.5 * np.cos(2 * np.pi * 0.6 * t_rot) + 0.28 * np.cos(2 * np.pi * 1.1 * t_rot)
+        z_rot = -0.5 + 0.55 * np.sin(2 * np.pi * 0.5 * t_rot + PI / 3)
         
         rot_lines = []
         for i, (data, axes, color) in enumerate(zip([x_rot, y_rot, z_rot], graph_axes_list, graph_colors)):
@@ -328,14 +335,37 @@ class AccelerometerFull(ThreeDScene):
             rot_lines.append(line)
             self.add_fixed_in_frame_mobjects(line)
         
-        # Complex rotation
+        # Complex rotation with continuous wobble
         self.play(
-            Rotate(tilt_group, angle=PI/4, axis=UP, about_point=accel_center, run_time=2),
-            Rotate(tilt_group, angle=PI/6, axis=RIGHT, about_point=accel_center, run_time=2),
+            Rotate(tilt_group, angle=PI/3, axis=UP + 0.2 * RIGHT, about_point=accel_center),
+            Rotate(tilt_group, angle=PI/5, axis=RIGHT - 0.3 * OUT, about_point=accel_center),
+            run_time=1.2
+        )
+
+        wobble_phase = ValueTracker(0)
+
+        def rotation_wobble(mob, dt):
+            wobble_phase.increment_value(dt)
+            t = wobble_phase.get_value()
+            offset = np.array([
+                0.22 * np.sin(2 * np.pi * 0.35 * t),
+                0.18 * np.cos(2 * np.pi * 0.4 * t),
+                0.16 * np.sin(2 * np.pi * 0.45 * t + PI / 4),
+            ])
+            mob.move_to(accel_center + offset)
+            mob.rotate(0.55 * dt, axis=UP, about_point=accel_center)
+            mob.rotate(0.38 * dt * np.sin(2 * np.pi * 0.6 * t), axis=RIGHT, about_point=accel_center)
+            mob.rotate(0.32 * dt * np.cos(2 * np.pi * 0.8 * t), axis=OUT, about_point=accel_center)
+
+        tilt_group.add_updater(rotation_wobble)
+
+        self.play(
             *[Create(line, run_time=4) for line in rot_lines],
             rate_func=linear,
             run_time=4
         )
+
+        tilt_group.clear_updaters()
         
         # Pulse all axes
         self.play(
@@ -345,9 +375,9 @@ class AccelerometerFull(ThreeDScene):
             run_time=0.2
         )
         self.play(
-            x_axis.animate.set_color("#ef4444"),
-            y_axis.animate.set_color("#22c55e"),
-            z_axis.animate.set_color("#3b82f6"),
+            x_axis.animate.set_color(palette["x"]),
+            y_axis.animate.set_color(palette["y"]),
+            z_axis.animate.set_color(palette["z"]),
             run_time=0.2
         )
         
@@ -370,8 +400,8 @@ class AccelerometerFull(ThreeDScene):
         # Rotate back to original orientation
         self.play(
             tilt_group.animate.move_to(accel_center),
-            Rotate(tilt_group, angle=-PI/4, axis=UP, about_point=accel_center),
-            Rotate(tilt_group, angle=-PI/6 + PI/10, axis=RIGHT, about_point=accel_center),
+            Rotate(tilt_group, angle=-PI/3, axis=UP, about_point=accel_center),
+            Rotate(tilt_group, angle=-PI/5, axis=RIGHT, about_point=accel_center),
             *[FadeOut(line) for line in rot_lines],
             run_time=1.5
         )
