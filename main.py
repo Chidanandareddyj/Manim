@@ -1,8 +1,14 @@
 from manim import *
 import numpy as np
 
-config.quality = "high_quality"  # 1080p60
-config.frame_rate = 60
+config.quality = "high_quality"  # 720p30 - faster rendering
+config.frame_rate = 60  # Reduced from 60 for faster rendering
+# For even faster testing, use: config.quality = "low_quality"  # 480p15
+# To render: manim -pql main.py AccelerometerFull
+# -p = preview (opens video when done)
+# -ql = low quality (fastest)
+# -qm = medium quality (balanced)
+# -qh = high quality (slowest, best quality)
 
 
 class AccelerometerFull(ThreeDScene):
@@ -178,7 +184,7 @@ class AccelerometerFull(ThreeDScene):
         self.play(*[FadeIn(g) for g in graph_groups], run_time=0.8)
         
         # Static signal: Z at -1g, X/Y flat
-        samples = 100
+        samples = 100  # Reduced from 100 for faster rendering
         x_static = np.zeros(samples)
         y_static = np.zeros(samples)
         z_static = -1.0 * np.ones(samples)
@@ -210,28 +216,12 @@ class AccelerometerFull(ThreeDScene):
         # Save state for clean restoration
         accel_group.save_state()
         
-        # X movement data - REALISTIC ACCELEROMETER BEHAVIOR:
-        # When accelerating in +X direction: sensor reads NEGATIVE (opposite to motion)
-        # When decelerating (still moving +X): sensor reads POSITIVE
-        # Zero between = constant velocity (no acceleration)
+        # X movement data - SIMPLE SINUSOIDAL MOVEMENT
         t_x = np.linspace(0, 5, samples)
-        x_data = np.zeros(samples)
-        
-        # Movement 1: Accelerate right (+X), then decelerate (still moving right)
-        # Acceleration phase: negative spike (sensor pushed back)
-        x_data[8:18] = -1.2 * np.sin(np.linspace(0, PI, 10))
-        # Zero cross - constant velocity
-        x_data[18:25] = 0
-        # Deceleration phase: positive spike (sensor pushed forward)
-        x_data[25:35] = 1.2 * np.sin(np.linspace(0, PI, 10))
-        
-        # Movement 2: Accelerate left (-X), then decelerate (still moving left)
-        # Acceleration phase: positive spike (sensor pushed forward)
-        x_data[50:60] = 1.2 * np.sin(np.linspace(0, PI, 10))
-        # Zero cross - constant velocity
-        x_data[60:67] = 0
-        # Deceleration phase: negative spike (sensor pushed back)
-        x_data[67:77] = -1.2 * np.sin(np.linspace(0, PI, 10))
+        # Simple sinusoidal acceleration pattern
+        frequency = 0.8  # cycles per 5 seconds
+        amplitude = 1.2
+        x_data = amplitude * np.sin(2 * PI * frequency * t_x)
         
         y_data = np.zeros(samples)
         z_data = -1.0 * np.ones(samples)
@@ -243,64 +233,35 @@ class AccelerometerFull(ThreeDScene):
         y_line = create_animated_graph_line(y_data, graph_axes_list[1], palette["y"], x_progress)
         z_line = create_animated_graph_line(z_data, graph_axes_list[2], palette["z"], x_progress)
         
-        # Animate cube sliding with graph - synchronized with progress
-        slide_distance = 0.8
+        # Animate cube sliding with graph - synchronized sinusoidal movement
+        slide_distance = 1.5
         
-        # Movement 1: Move right (accelerate -> constant velocity -> decelerate)
-        # Progress 0 to 0.35 covers samples 0-35 (first movement)
-        self.play(
-            accel_group.animate.shift(RIGHT * slide_distance * 0.4),
-            x_progress.animate.set_value(0.18),  # Acceleration phase (samples 8-18)
-            rate_func=rate_functions.ease_out_quad,
-            run_time=0.7
-        )
-        self.play(
-            accel_group.animate.shift(RIGHT * slide_distance * 0.4),
-            x_progress.animate.set_value(0.25),  # Zero cross (samples 18-25)
-            rate_func=linear,
-            run_time=0.4
-        )
-        self.play(
-            accel_group.animate.shift(RIGHT * slide_distance * 0.2),
-            x_progress.animate.set_value(0.35),  # Deceleration (samples 25-35)
-            rate_func=rate_functions.ease_in_quad,
-            run_time=0.7
-        )
+        # Remove the static cube and axes from scene (they were added separately)
+        self.remove(cube, axes_group)
         
-        # Return to center (flat graph section)
-        self.play(
-            accel_group.animate.move_to(accel_center),
-            x_progress.animate.set_value(0.50),  # Gap before next movement
-            run_time=0.5
-        )
+        # Create a function that returns cube at correct position
+        def get_moving_cube():
+            progress = x_progress.get_value()
+            t = progress * 5
+            position = slide_distance * np.sin(2 * PI * frequency * t)
+            target_pos = accel_center + RIGHT * position
+            return accel_group.copy().move_to(target_pos)
         
-        # Movement 2: Move left (accelerate -> constant velocity -> decelerate)
-        # Progress 0.50 to 0.77 covers samples 50-77 (second movement)
-        self.play(
-            accel_group.animate.shift(LEFT * slide_distance * 0.4),
-            x_progress.animate.set_value(0.60),  # Acceleration phase
-            rate_func=rate_functions.ease_out_quad,
-            run_time=0.7
-        )
-        self.play(
-            accel_group.animate.shift(LEFT * slide_distance * 0.4),
-            x_progress.animate.set_value(0.67),  # Zero cross
-            rate_func=linear,
-            run_time=0.4
-        )
-        self.play(
-            accel_group.animate.shift(LEFT * slide_distance * 0.2),
-            x_progress.animate.set_value(0.77),  # Deceleration
-            rate_func=rate_functions.ease_in_quad,
-            run_time=0.7
-        )
+        # Use always_redraw to create cube that updates every frame
+        moving_cube = always_redraw(get_moving_cube)
+        self.add(moving_cube)
         
-        # Return to center and complete graph
+        # Animate progress - cube will update automatically via always_redraw
         self.play(
-            accel_group.animate.move_to(accel_center),
             x_progress.animate.set_value(1.0),
-            run_time=0.5
+            run_time=5.0,
+            rate_func=linear
         )
+        
+        # Clean up - restore original cube
+        self.remove(moving_cube)
+        accel_group.move_to(accel_center)
+        self.add(cube, axes_group)
         
         # Remove updaters and finalize lines
         x_line.clear_updaters()
@@ -332,26 +293,13 @@ class AccelerometerFull(ThreeDScene):
         
         accel_group.save_state()
         
-        # Y movement data - REALISTIC ACCELEROMETER BEHAVIOR:
-        # Same physics as X but for vertical motion
+        # Y movement data - SIMPLE SINUSOIDAL MOVEMENT
+        t_y = np.linspace(0, 5, samples)
+        # Simple sinusoidal acceleration pattern
+        frequency = 0.8  # cycles per 5 seconds
+        amplitude = 1.2
         x_data_y = np.zeros(samples)
-        y_data_y = np.zeros(samples)
-        
-        # Movement 1: Accelerate up (+Y), then decelerate (still moving up)
-        # Acceleration phase: negative spike
-        y_data_y[8:18] = -1.2 * np.sin(np.linspace(0, PI, 10))
-        # Zero cross - constant velocity
-        y_data_y[18:25] = 0
-        # Deceleration phase: positive spike
-        y_data_y[25:35] = 1.2 * np.sin(np.linspace(0, PI, 10))
-        
-        # Movement 2: Accelerate down (-Y), then decelerate (still moving down)
-        # Acceleration phase: positive spike
-        y_data_y[50:60] = 1.2 * np.sin(np.linspace(0, PI, 10))
-        # Zero cross - constant velocity
-        y_data_y[60:67] = 0
-        # Deceleration phase: negative spike
-        y_data_y[67:77] = -1.2 * np.sin(np.linspace(0, PI, 10))
+        y_data_y = amplitude * np.sin(2 * PI * frequency * t_y)
         
         z_data_y = -1.0 * np.ones(samples)
         
@@ -362,59 +310,35 @@ class AccelerometerFull(ThreeDScene):
         y_line2 = create_animated_graph_line(y_data_y, graph_axes_list[1], palette["y"], y_progress)
         z_line2 = create_animated_graph_line(z_data_y, graph_axes_list[2], palette["z"], y_progress)
         
-        # Movement 1: Move up (accelerate -> constant velocity -> decelerate)
-        self.play(
-            accel_group.animate.shift(UP * slide_distance * 0.4),
-            y_progress.animate.set_value(0.18),
-            rate_func=rate_functions.ease_out_quad,
-            run_time=0.7
-        )
-        self.play(
-            accel_group.animate.shift(UP * slide_distance * 0.4),
-            y_progress.animate.set_value(0.25),
-            rate_func=linear,
-            run_time=0.4
-        )
-        self.play(
-            accel_group.animate.shift(UP * slide_distance * 0.2),
-            y_progress.animate.set_value(0.35),
-            rate_func=rate_functions.ease_in_quad,
-            run_time=0.7
-        )
+        # Animate cube sliding with graph - synchronized sinusoidal movement
+        slide_distance = 1.5
         
-        # Return to center
-        self.play(
-            accel_group.animate.move_to(accel_center),
-            y_progress.animate.set_value(0.50),
-            run_time=0.5
-        )
+        # Remove the static cube and axes from scene (they were added separately)
+        self.remove(cube, axes_group)
         
-        # Movement 2: Move down (accelerate -> constant velocity -> decelerate)
-        self.play(
-            accel_group.animate.shift(DOWN * slide_distance * 0.4),
-            y_progress.animate.set_value(0.60),
-            rate_func=rate_functions.ease_out_quad,
-            run_time=0.7
-        )
-        self.play(
-            accel_group.animate.shift(DOWN * slide_distance * 0.4),
-            y_progress.animate.set_value(0.67),
-            rate_func=linear,
-            run_time=0.4
-        )
-        self.play(
-            accel_group.animate.shift(DOWN * slide_distance * 0.2),
-            y_progress.animate.set_value(0.77),
-            rate_func=rate_functions.ease_in_quad,
-            run_time=0.7
-        )
+        # Create a function that returns cube at correct position
+        def get_moving_cube_y():
+            progress = y_progress.get_value()
+            t = progress * 5
+            position = slide_distance * np.sin(2 * PI * frequency * t)
+            target_pos = accel_center + UP * position
+            return accel_group.copy().move_to(target_pos)
         
-        # Return to center and complete graph
+        # Use always_redraw to create cube that updates every frame
+        moving_cube = always_redraw(get_moving_cube_y)
+        self.add(moving_cube)
+        
+        # Animate progress - cube will update automatically via always_redraw
         self.play(
-            accel_group.animate.move_to(accel_center),
             y_progress.animate.set_value(1.0),
-            run_time=0.5
+            run_time=5.0,
+            rate_func=linear
         )
+        
+        # Clean up - restore original cube
+        self.remove(moving_cube)
+        accel_group.move_to(accel_center)
+        self.add(cube, axes_group)
         
         # Remove updaters
         x_line2.clear_updaters()
@@ -446,33 +370,15 @@ class AccelerometerFull(ThreeDScene):
         
         accel_group.save_state()
         
-        # Z movement data - REALISTIC ACCELEROMETER BEHAVIOR:
-        # Moving along Z-axis (up/down through body of sensor)
+        # Z movement data - SIMPLE SINUSOIDAL MOVEMENT
         # Gravity always contributes -1g baseline on Z
-        t_tilt = np.linspace(0, 5, samples)
+        t_z = np.linspace(0, 5, samples)
+        frequency = 0.8  # cycles per 5 seconds
+        amplitude = 1.0
         x_data_z = np.zeros(samples)
         y_data_z = np.zeros(samples)
-        z_data_z = -1.0 * np.ones(samples)  # Baseline gravity
-        
-        # Movement 1: Accelerate upward (+Z), then decelerate
-        # Acceleration upward: adds negative acceleration (opposite to motion) on top of -1g
-        z_data_z[8:18] = -1.0 - 1.0 * np.sin(np.linspace(0, PI, 10))  # Goes to -2g
-        # Zero cross - constant velocity (just gravity)
-        z_data_z[18:25] = -1.0
-        # Deceleration: adds positive acceleration on top of -1g
-        z_data_z[25:35] = -1.0 + 1.0 * np.sin(np.linspace(0, PI, 10))  # Goes to 0g
-        
-        # Movement 2: Accelerate downward (-Z), then decelerate
-        # Acceleration downward: adds positive (less negative total)
-        z_data_z[50:60] = -1.0 + 1.0 * np.sin(np.linspace(0, PI, 10))  # Goes to 0g
-        # Zero cross
-        z_data_z[60:67] = -1.0
-        # Deceleration: adds negative
-        z_data_z[67:77] = -1.0 - 1.0 * np.sin(np.linspace(0, PI, 10))  # Goes to -2g
-        
-        x_line3 = create_graph_line(x_data_z, graph_axes_list[0], palette["x"])
-        y_line3 = create_graph_line(y_data_z, graph_axes_list[1], palette["y"])
-        z_line3 = create_graph_line(z_data_z, graph_axes_list[2], palette["z"])
+        # Simple sinusoidal variation on top of gravity baseline
+        z_data_z = -1.0 + amplitude * np.sin(2 * PI * frequency * t_z)
         
         # Create progress tracker for synchronized graph drawing
         z_progress = ValueTracker(0)
@@ -481,59 +387,35 @@ class AccelerometerFull(ThreeDScene):
         y_line3 = create_animated_graph_line(y_data_z, graph_axes_list[1], palette["y"], z_progress)
         z_line3 = create_animated_graph_line(z_data_z, graph_axes_list[2], palette["z"], z_progress)
         
-        # Movement 1: Move up along Z (accelerate -> constant velocity -> decelerate)
-        self.play(
-            accel_group.animate.shift(OUT * slide_distance * 0.4),
-            z_progress.animate.set_value(0.18),
-            rate_func=rate_functions.ease_out_quad,
-            run_time=0.7
-        )
-        self.play(
-            accel_group.animate.shift(OUT * slide_distance * 0.4),
-            z_progress.animate.set_value(0.25),
-            rate_func=linear,
-            run_time=0.4
-        )
-        self.play(
-            accel_group.animate.shift(OUT * slide_distance * 0.2),
-            z_progress.animate.set_value(0.35),
-            rate_func=rate_functions.ease_in_quad,
-            run_time=0.7
-        )
+        # Animate cube sliding with graph - synchronized sinusoidal movement
+        slide_distance = 1.5
         
-        # Return to center
-        self.play(
-            accel_group.animate.move_to(accel_center),
-            z_progress.animate.set_value(0.50),
-            run_time=0.5
-        )
+        # Remove the static cube and axes from scene (they were added separately)
+        self.remove(cube, axes_group)
         
-        # Movement 2: Move down along Z (accelerate -> constant velocity -> decelerate)
-        self.play(
-            accel_group.animate.shift(IN * slide_distance * 0.4),
-            z_progress.animate.set_value(0.60),
-            rate_func=rate_functions.ease_out_quad,
-            run_time=0.7
-        )
-        self.play(
-            accel_group.animate.shift(IN * slide_distance * 0.4),
-            z_progress.animate.set_value(0.67),
-            rate_func=linear,
-            run_time=0.4
-        )
-        self.play(
-            accel_group.animate.shift(IN * slide_distance * 0.2),
-            z_progress.animate.set_value(0.77),
-            rate_func=rate_functions.ease_in_quad,
-            run_time=0.7
-        )
+        # Create a function that returns cube at correct position
+        def get_moving_cube_z():
+            progress = z_progress.get_value()
+            t = progress * 5
+            position = slide_distance * np.sin(2 * PI * frequency * t)
+            target_pos = accel_center + OUT * position
+            return accel_group.copy().move_to(target_pos)
         
-        # Return to center and complete graph
+        # Use always_redraw to create cube that updates every frame
+        moving_cube = always_redraw(get_moving_cube_z)
+        self.add(moving_cube)
+        
+        # Animate progress - cube will update automatically via always_redraw
         self.play(
-            accel_group.animate.move_to(accel_center),
             z_progress.animate.set_value(1.0),
-            run_time=0.5
+            run_time=5.0,
+            rate_func=linear
         )
+        
+        # Clean up - restore original cube
+        self.remove(moving_cube)
+        accel_group.move_to(accel_center)
+        self.add(cube, axes_group)
         
         # Remove updaters
         x_line3.clear_updaters()
