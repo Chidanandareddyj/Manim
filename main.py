@@ -7,13 +7,15 @@ config.frame_rate = 60
 
 class AccelerometerFull(ThreeDScene):
     """
-    Full 30-second Accelerometer visualization video.
+    Educational Accelerometer visualization (~30s).
+    Clear cause-and-effect: one axis moves at a time, corresponding graph responds.
+    
     Scenes:
-    - [0-6s] Introduction: Static device with gravity
-    - [6-12s] Tilt/Posture: Z-axis changes
-    - [12-18s] Walking: X/Y oscillations
-    - [18-24s] Rotation: All axes wobble
-    - [24-30s] Return to rest + Summary
+    - [0-5s]   Introduction: Static device, Z at -1g (gravity)
+    - [5-11s]  X-Axis Demo: Slide LEFT/RIGHT, only X graph spikes
+    - [11-17s] Y-Axis Demo: Slide UP/DOWN, only Y graph spikes
+    - [17-23s] Z-Axis Demo: Tilt device, Z changes (gravity redistribution)
+    - [23-30s] Combined + Summary
     """
     
     def construct(self):
@@ -24,6 +26,13 @@ class AccelerometerFull(ThreeDScene):
         # ============================================================
         # SECTION 1: CREATE ALL PERSISTENT ELEMENTS
         # ============================================================
+        
+        # === COLOR PALETTE (color-blind friendly) ===
+        palette = {
+            "x": "#4477AA",  # deep blue
+            "y": "#CCBB44",  # golden yellow
+            "z": "#66CCEE",  # sky blue
+        }
         
         # === TITLE ===
         title = Text("Accelerometer", font_size=36, weight=BOLD, color=WHITE)
@@ -37,11 +46,6 @@ class AccelerometerFull(ThreeDScene):
         # === 3D AXES (THICKER ARROWS) ===
         axis_length = 1.4
         axis_thickness = 0.045
-        palette = {
-            "x": "#4477AA",  # deep blue
-            "y": "#CCBB44",  # golden yellow
-            "z": "#66CCEE",  # sky blue
-        }
         
         x_axis = Arrow3D(ORIGIN, RIGHT * axis_length, color=palette["x"], thickness=axis_thickness, height=0.24, base_radius=0.08)
         y_axis = Arrow3D(ORIGIN, UP * axis_length, color=palette["y"], thickness=axis_thickness, height=0.24, base_radius=0.08)
@@ -62,25 +66,24 @@ class AccelerometerFull(ThreeDScene):
         axes_group = VGroup(x_axis, y_axis, z_axis, x_label, y_label, z_label)
         
         # === GROUP ACCELEROMETER ===
-        accel_static = VGroup(cube, axes_group)
+        accel_group = VGroup(cube, axes_group)
         accel_center = LEFT * 3.8
-        accel_static.move_to(accel_center)
+        accel_group.move_to(accel_center)
         
-        # === LIVE GRAPHS (5-second rolling window) ===
+        # === LIVE GRAPHS ===
         graph_y_positions = [1.6, 0, -1.6]
         graph_colors = [palette["x"], palette["y"], palette["z"]]
         graph_names = ["X", "Y", "Z"]
         
-        # Create graph axes
         graph_axes_list = []
         graph_groups = []
         
         for i, (y_pos, color, name) in enumerate(zip(graph_y_positions, graph_colors, graph_names)):
             axes = Axes(
                 x_range=[0, 5, 1],
-                y_range=[-2, 2, 1],
+                y_range=[-2.5, 1.5, 1],
                 x_length=4.5,
-                y_length=1.0,
+                y_length=1.2,
                 axis_config={
                     "stroke_width": 1.2,
                     "stroke_color": "#4a5568",
@@ -92,19 +95,21 @@ class AccelerometerFull(ThreeDScene):
             
             # Grid lines
             grid = VGroup()
-            for yv in [-1, 0, 1]:
+            for yv in [-2, -1, 0, 1]:
                 gl = Line(axes.c2p(0, yv), axes.c2p(5, yv), color="#2d3748", stroke_width=0.5, stroke_opacity=0.4)
                 grid.add(gl)
             
             # Y labels
             y_labels = VGroup(
+                Text("-2g", font_size=9, color="#718096"),
                 Text("-1g", font_size=9, color="#718096"),
                 Text("0", font_size=9, color="#718096"),
                 Text("+1g", font_size=9, color="#718096"),
             )
-            y_labels[0].next_to(axes.c2p(0, -1), LEFT, buff=0.05)
-            y_labels[1].next_to(axes.c2p(0, 0), LEFT, buff=0.05)
-            y_labels[2].next_to(axes.c2p(0, 1), LEFT, buff=0.05)
+            y_labels[0].next_to(axes.c2p(0, -2), LEFT, buff=0.05)
+            y_labels[1].next_to(axes.c2p(0, -1), LEFT, buff=0.05)
+            y_labels[2].next_to(axes.c2p(0, 0), LEFT, buff=0.05)
+            y_labels[3].next_to(axes.c2p(0, 1), LEFT, buff=0.05)
             
             # Axis indicator
             axis_dot = Dot(radius=0.05, color=color)
@@ -124,313 +129,530 @@ class AccelerometerFull(ThreeDScene):
             self.add_fixed_in_frame_mobjects(g)
         
         # ============================================================
-        # SCENE 1: INTRODUCTION - STATIC DEVICE (0-6s)
+        # HELPER: Create graph line for given data
+        # ============================================================
+        def create_graph_line(data, axes, color):
+            samples = len(data)
+            t_vals = np.linspace(0, 5, samples)
+            points = [axes.c2p(t_vals[j], data[j]) for j in range(samples)]
+            line = VMobject(color=color, stroke_width=2.5)
+            line.set_points_smoothly(points[::2])
+            self.add_fixed_in_frame_mobjects(line)
+            return line
+        
+        def create_animated_graph_line(data, axes, color, progress_tracker):
+            """Create a line that draws based on progress_tracker value (0 to 1)"""
+            samples_count = len(data)
+            t_vals = np.linspace(0, 5, samples_count)
+            all_points = [axes.c2p(t_vals[j], data[j]) for j in range(samples_count)]
+            
+            line = VMobject(color=color, stroke_width=2.5)
+            self.add_fixed_in_frame_mobjects(line)
+            
+            def update_line(mob):
+                progress = progress_tracker.get_value()
+                num_points = max(2, int(progress * len(all_points)))
+                points_to_draw = all_points[:num_points]
+                if len(points_to_draw) >= 2:
+                    mob.set_points_smoothly(points_to_draw[::2] if len(points_to_draw) > 4 else points_to_draw)
+            
+            line.add_updater(update_line)
+            return line
+        
+        # ============================================================
+        # SCENE 1: INTRODUCTION - STATIC DEVICE (0-5s)
         # ============================================================
         
-        # Intro text
-        intro_text = Text("Device at Rest", font_size=20, color="#9ca3af")
+        intro_text = Text("Device at Rest (Gravity on Z)", font_size=20, color="#9ca3af")
         intro_text.next_to(title, DOWN, buff=0.15)
         self.add_fixed_in_frame_mobjects(intro_text)
         
-        # Fade in device
+        # Fade in
         self.play(
             FadeIn(cube, scale=0.9),
             FadeIn(title),
             FadeIn(intro_text),
-            run_time=1.5
-        )
-        
-        # Show axes
-        self.play(Create(axes_group), run_time=1)
-        
-        # Show graphs and tracker AFTER axes
-        for g in graph_groups:
-            self.add_fixed_in_frame_mobjects(g)
-        
-        self.play(*[FadeIn(g) for g in graph_groups], run_time=1)
-        
-        # Draw static signal (Z at -1g, X/Y at 0)
-        static_samples = 150
-        t_static = np.linspace(0, 5, static_samples)
-        x_static = 0.04 * np.sin(2 * np.pi * 0.25 * t_static)
-        y_static = 0.04 * np.sin(2 * np.pi * 0.18 * t_static + PI / 4)
-        z_static = -1.0 + 0.03 * np.cos(2 * np.pi * 0.15 * t_static)
-        
-        static_lines = []
-        for i, (data, axes, color) in enumerate(zip([x_static, y_static, z_static], graph_axes_list, graph_colors)):
-            points = [axes.c2p(t_static[j], data[j]) for j in range(static_samples)]
-            line = VMobject(color=color, stroke_width=2)
-            line.set_points_smoothly(points[::2])
-            static_lines.append(line)
-            self.add_fixed_in_frame_mobjects(line)
-        
-        self.play(
-            *[Create(line, run_time=1.5) for line in static_lines],
-            rate_func=linear
-        )
-        
-        self.wait(0.5)
-        
-        # ============================================================
-        # SCENE 2: TILT / POSTURE CHANGE (6-12s)
-        # ============================================================
-        
-        tilt_text = Text("Posture Change: Tilting", font_size=20, color="#f59e0b")
-        tilt_text.next_to(title, DOWN, buff=0.15)
-        self.add_fixed_in_frame_mobjects(tilt_text)
-        
-        self.play(
-            FadeOut(intro_text),
-            FadeIn(tilt_text),
-            run_time=0.5
-        )
-        
-        # Clear old lines
-        self.play(*[FadeOut(line) for line in static_lines], run_time=0.3)
-        
-        # Tilt the device
-        tilt_group = VGroup(cube, axes_group)
-        
-        # Generate tilt data
-        tilt_samples = 150
-        t_tilt = np.linspace(0, 5, tilt_samples)
-        tilt_angle = PI / 3
-        theta_profile = tilt_angle * np.sin(np.linspace(0, np.pi, tilt_samples))
-        z_tilt = -np.cos(theta_profile)
-        x_tilt = 1.15 * np.sin(theta_profile)
-        y_tilt = 0.12 * np.sin(2 * np.pi * 0.5 * t_tilt)
-        
-        tilt_lines = []
-        for i, (data, axes, color) in enumerate(zip([x_tilt, y_tilt, z_tilt], graph_axes_list, graph_colors)):
-            points = [axes.c2p(t_tilt[j], data[j]) for j in range(tilt_samples)]
-            line = VMobject(color=color, stroke_width=2)
-            line.set_points_smoothly(points[::2])
-            tilt_lines.append(line)
-            self.add_fixed_in_frame_mobjects(line)
-        
-        # Animate tilt with graph
-        self.play(
-            Rotate(tilt_group, angle=tilt_angle, axis=RIGHT, about_point=accel_center),
-            *[Create(line, run_time=3) for line in tilt_lines],
-            rate_func=linear,
-            run_time=3
-        )
-        
-        # Pulse Z-axis to highlight
-        self.play(
-            z_axis.animate.set_color(WHITE), run_time=0.2
-        )
-        self.play(
-            z_axis.animate.set_color(palette["z"]), run_time=0.2
-        )
-        
-        # Tilt back slightly
-        self.play(
-            Rotate(tilt_group, angle=-tilt_angle * 0.7, axis=RIGHT, about_point=accel_center),
             run_time=1.2
         )
+        self.play(Create(axes_group), run_time=0.8)
+        self.play(*[FadeIn(g) for g in graph_groups], run_time=0.8)
         
-        self.wait(0.3)
+        # Static signal: Z at -1g, X/Y flat
+        samples = 100
+        x_static = np.zeros(samples)
+        y_static = np.zeros(samples)
+        z_static = -1.0 * np.ones(samples)
+        
+        static_lines = [
+            create_graph_line(x_static, graph_axes_list[0], palette["x"]),
+            create_graph_line(y_static, graph_axes_list[1], palette["y"]),
+            create_graph_line(z_static, graph_axes_list[2], palette["z"]),
+        ]
+        
+        self.play(*[Create(line, run_time=1.2) for line in static_lines], rate_func=linear)
+        self.wait(0.8)
         
         # ============================================================
-        # SCENE 3: WALKING - X/Y OSCILLATIONS (12-18s)
+        # SCENE 2: X-AXIS DEMO - SLIDE LEFT/RIGHT (5-11s)
         # ============================================================
         
-        walk_text = Text("Walking: X/Y Oscillate", font_size=20, color=palette["y"])
-        walk_text.next_to(title, DOWN, buff=0.15)
-        self.add_fixed_in_frame_mobjects(walk_text)
+        self.play(*[FadeOut(line) for line in static_lines], FadeOut(intro_text), run_time=0.3)
         
+        x_demo_text = Text("X-Axis: Slide Left ← → Right", font_size=20, color=palette["x"])
+        x_demo_text.next_to(title, DOWN, buff=0.15)
+        self.add_fixed_in_frame_mobjects(x_demo_text)
+        self.play(FadeIn(x_demo_text), run_time=0.4)
+        
+        # Highlight X-axis
+        self.play(x_axis.animate.set_color(WHITE), run_time=0.15)
+        self.play(x_axis.animate.set_color(palette["x"]), run_time=0.15)
+        
+        # Save state for clean restoration
+        accel_group.save_state()
+        
+        # X movement data - REALISTIC ACCELEROMETER BEHAVIOR:
+        # When accelerating in +X direction: sensor reads NEGATIVE (opposite to motion)
+        # When decelerating (still moving +X): sensor reads POSITIVE
+        # Zero between = constant velocity (no acceleration)
+        t_x = np.linspace(0, 5, samples)
+        x_data = np.zeros(samples)
+        
+        # Movement 1: Accelerate right (+X), then decelerate (still moving right)
+        # Acceleration phase: negative spike (sensor pushed back)
+        x_data[8:18] = -1.2 * np.sin(np.linspace(0, PI, 10))
+        # Zero cross - constant velocity
+        x_data[18:25] = 0
+        # Deceleration phase: positive spike (sensor pushed forward)
+        x_data[25:35] = 1.2 * np.sin(np.linspace(0, PI, 10))
+        
+        # Movement 2: Accelerate left (-X), then decelerate (still moving left)
+        # Acceleration phase: positive spike (sensor pushed forward)
+        x_data[50:60] = 1.2 * np.sin(np.linspace(0, PI, 10))
+        # Zero cross - constant velocity
+        x_data[60:67] = 0
+        # Deceleration phase: negative spike (sensor pushed back)
+        x_data[67:77] = -1.2 * np.sin(np.linspace(0, PI, 10))
+        
+        y_data = np.zeros(samples)
+        z_data = -1.0 * np.ones(samples)
+        
+        # Create progress tracker for synchronized graph drawing
+        x_progress = ValueTracker(0)
+        
+        x_line = create_animated_graph_line(x_data, graph_axes_list[0], palette["x"], x_progress)
+        y_line = create_animated_graph_line(y_data, graph_axes_list[1], palette["y"], x_progress)
+        z_line = create_animated_graph_line(z_data, graph_axes_list[2], palette["z"], x_progress)
+        
+        # Animate cube sliding with graph - synchronized with progress
+        slide_distance = 0.8
+        
+        # Movement 1: Move right (accelerate -> constant velocity -> decelerate)
+        # Progress 0 to 0.35 covers samples 0-35 (first movement)
         self.play(
-            FadeOut(tilt_text),
-            FadeIn(walk_text),
-            *[FadeOut(line) for line in tilt_lines],
-            run_time=0.5
+            accel_group.animate.shift(RIGHT * slide_distance * 0.4),
+            x_progress.animate.set_value(0.18),  # Acceleration phase (samples 8-18)
+            rate_func=rate_functions.ease_out_quad,
+            run_time=0.7
         )
-        
-        # Walking data
-        walk_samples = 150
-        t_walk = np.linspace(0, 5, walk_samples)
-        walk_frequency = 1.8
-        x_walk = 0.55 * np.sin(2 * np.pi * walk_frequency * t_walk)
-        y_walk = 0.4 * np.cos(2 * np.pi * walk_frequency * t_walk)
-        z_walk = -0.65 + 0.18 * np.sin(2 * np.pi * 2 * walk_frequency * t_walk + PI / 4)
-        
-        walk_lines = []
-        for i, (data, axes, color) in enumerate(zip([x_walk, y_walk, z_walk], graph_axes_list, graph_colors)):
-            points = [axes.c2p(t_walk[j], data[j]) for j in range(walk_samples)]
-            line = VMobject(color=color, stroke_width=2)
-            line.set_points_smoothly(points[::2])
-            walk_lines.append(line)
-            self.add_fixed_in_frame_mobjects(line)
-        
-        # Bob the device with reset each frame to keep axes aligned
-        walk_phase = ValueTracker(0)
-        tilt_group.save_state()
-        
-        def walk_bob(mob, dt):
-            walk_phase.increment_value(dt)
-            t = walk_phase.get_value()
-            offset = np.array([
-                0.18 * np.sin(2 * np.pi * walk_frequency * t),
-                0.12 * np.cos(2 * np.pi * walk_frequency * t),
-                0.09 * np.sin(2 * np.pi * 2 * walk_frequency * t)
-            ])
-            mob.restore()
-            mob.shift(offset)
-            mob.rotate(0.16 * np.sin(2 * np.pi * walk_frequency * t) * dt, axis=UP, about_point=mob.get_center())
-            mob.rotate(0.1 * np.cos(2 * np.pi * walk_frequency * t) * dt, axis=RIGHT, about_point=mob.get_center())
-        
-        tilt_group.add_updater(walk_bob)
-        
         self.play(
-            *[Create(line, run_time=4) for line in walk_lines],
+            accel_group.animate.shift(RIGHT * slide_distance * 0.4),
+            x_progress.animate.set_value(0.25),  # Zero cross (samples 18-25)
             rate_func=linear,
-            run_time=4
-        )
-        
-        # Pulse X and Y
-        self.play(
-            x_axis.animate.set_color(WHITE),
-            y_axis.animate.set_color(WHITE),
-            run_time=0.2
+            run_time=0.4
         )
         self.play(
-            x_axis.animate.set_color(palette["x"]),
-            y_axis.animate.set_color(palette["y"]),
-            run_time=0.2
+            accel_group.animate.shift(RIGHT * slide_distance * 0.2),
+            x_progress.animate.set_value(0.35),  # Deceleration (samples 25-35)
+            rate_func=rate_functions.ease_in_quad,
+            run_time=0.7
         )
         
-        tilt_group.clear_updaters()
-        tilt_group.restore()
-        
-        self.wait(0.3)
-        
-        # ============================================================
-        # SCENE 4: ROTATION - ALL AXES WOBBLE (18-24s)
-        # ============================================================
-        
-        rotate_text = Text("Rotation: All Axes Wobble", font_size=20, color="#a855f7")
-        rotate_text.next_to(title, DOWN, buff=0.15)
-        self.add_fixed_in_frame_mobjects(rotate_text)
-        
+        # Return to center (flat graph section)
         self.play(
-            FadeOut(walk_text),
-            FadeIn(rotate_text),
-            *[FadeOut(line) for line in walk_lines],
+            accel_group.animate.move_to(accel_center),
+            x_progress.animate.set_value(0.50),  # Gap before next movement
             run_time=0.5
         )
         
-        # Rotation data - all axes change
-        rot_samples = 150
-        t_rot = np.linspace(0, 5, rot_samples)
-        x_rot = 0.6 * np.sin(2 * np.pi * 0.8 * t_rot) + 0.35 * np.sin(2 * np.pi * 1.2 * t_rot)
-        y_rot = 0.5 * np.cos(2 * np.pi * 0.6 * t_rot) + 0.28 * np.cos(2 * np.pi * 1.1 * t_rot)
-        z_rot = -0.5 + 0.55 * np.sin(2 * np.pi * 0.5 * t_rot + PI / 3)
-        
-        rot_lines = []
-        for i, (data, axes, color) in enumerate(zip([x_rot, y_rot, z_rot], graph_axes_list, graph_colors)):
-            points = [axes.c2p(t_rot[j], data[j]) for j in range(rot_samples)]
-            line = VMobject(color=color, stroke_width=2)
-            line.set_points_smoothly(points[::2])
-            rot_lines.append(line)
-            self.add_fixed_in_frame_mobjects(line)
-        
-        # Complex rotation with continuous wobble
+        # Movement 2: Move left (accelerate -> constant velocity -> decelerate)
+        # Progress 0.50 to 0.77 covers samples 50-77 (second movement)
         self.play(
-            Rotate(tilt_group, angle=PI/3, axis=UP + 0.2 * RIGHT, about_point=accel_center),
-            Rotate(tilt_group, angle=PI/5, axis=RIGHT - 0.3 * OUT, about_point=accel_center),
-            run_time=1.2
+            accel_group.animate.shift(LEFT * slide_distance * 0.4),
+            x_progress.animate.set_value(0.60),  # Acceleration phase
+            rate_func=rate_functions.ease_out_quad,
+            run_time=0.7
         )
-
-        wobble_phase = ValueTracker(0)
-
-        def rotation_wobble(mob, dt):
-            wobble_phase.increment_value(dt)
-            t = wobble_phase.get_value()
-            offset = np.array([
-                0.22 * np.sin(2 * np.pi * 0.35 * t),
-                0.18 * np.cos(2 * np.pi * 0.4 * t),
-                0.16 * np.sin(2 * np.pi * 0.45 * t + PI / 4),
-            ])
-            mob.move_to(accel_center + offset)
-            mob.rotate(0.55 * dt, axis=UP, about_point=accel_center)
-            mob.rotate(0.38 * dt * np.sin(2 * np.pi * 0.6 * t), axis=RIGHT, about_point=accel_center)
-            mob.rotate(0.32 * dt * np.cos(2 * np.pi * 0.8 * t), axis=OUT, about_point=accel_center)
-
-        tilt_group.add_updater(rotation_wobble)
-
         self.play(
-            *[Create(line, run_time=4) for line in rot_lines],
+            accel_group.animate.shift(LEFT * slide_distance * 0.4),
+            x_progress.animate.set_value(0.67),  # Zero cross
             rate_func=linear,
-            run_time=4
-        )
-
-        tilt_group.clear_updaters()
-        
-        # Pulse all axes
-        self.play(
-            x_axis.animate.set_color(WHITE),
-            y_axis.animate.set_color(WHITE),
-            z_axis.animate.set_color(WHITE),
-            run_time=0.2
+            run_time=0.4
         )
         self.play(
-            x_axis.animate.set_color(palette["x"]),
-            y_axis.animate.set_color(palette["y"]),
-            z_axis.animate.set_color(palette["z"]),
-            run_time=0.2
+            accel_group.animate.shift(LEFT * slide_distance * 0.2),
+            x_progress.animate.set_value(0.77),  # Deceleration
+            rate_func=rate_functions.ease_in_quad,
+            run_time=0.7
         )
         
-        self.wait(0.3)
-        
-        # ============================================================
-        # SCENE 5: RETURN TO REST + SUMMARY (24-30s)
-        # ============================================================
-        
-        rest_text = Text("Returning to Rest", font_size=20, color="#9ca3af")
-        rest_text.next_to(title, DOWN, buff=0.15)
-        self.add_fixed_in_frame_mobjects(rest_text)
-        
+        # Return to center and complete graph
         self.play(
-            FadeOut(rotate_text),
-            FadeIn(rest_text),
+            accel_group.animate.move_to(accel_center),
+            x_progress.animate.set_value(1.0),
             run_time=0.5
         )
         
-        # Rotate back to original orientation
-        self.play(
-            tilt_group.animate.move_to(accel_center),
-            Rotate(tilt_group, angle=-PI/3, axis=UP, about_point=accel_center),
-            Rotate(tilt_group, angle=-PI/5, axis=RIGHT, about_point=accel_center),
-            *[FadeOut(line) for line in rot_lines],
-            run_time=1.5
-        )
+        # Remove updaters and finalize lines
+        x_line.clear_updaters()
+        y_line.clear_updaters()
+        z_line.clear_updaters()
         
-        # Final static data
-        final_samples = 100
-        t_final = np.linspace(0, 5, final_samples)
-        x_final = 0.03 * np.sin(2 * np.pi * 0.3 * t_final + PI / 5)
-        y_final = 0.03 * np.sin(2 * np.pi * 0.25 * t_final)
-        z_final = -1.0 + 0.02 * np.cos(2 * np.pi * 0.2 * t_final)
+        accel_group.restore()
+        accel_group.move_to(accel_center)
+        self.wait(0.4)
         
-        final_lines = []
-        for i, (data, axes, color) in enumerate(zip([x_final, y_final, z_final], graph_axes_list, graph_colors)):
-            points = [axes.c2p(t_final[j], data[j]) for j in range(final_samples)]
-            line = VMobject(color=color, stroke_width=2)
-            line.set_points_smoothly(points[::2])
-            final_lines.append(line)
-            self.add_fixed_in_frame_mobjects(line)
+        # ============================================================
+        # SCENE 3: Y-AXIS DEMO - SLIDE UP/DOWN (11-17s)
+        # ============================================================
         
         self.play(
-            *[Create(line, run_time=1) for line in final_lines],
-            rate_func=linear
+            *[FadeOut(line) for line in [x_line, y_line, z_line]],
+            FadeOut(x_demo_text),
+            run_time=0.3
         )
         
-        # Summary text
-        self.play(FadeOut(rest_text), run_time=0.3)
+        y_demo_text = Text("Y-Axis: Slide Up ↑ ↓ Down", font_size=20, color=palette["y"])
+        y_demo_text.next_to(title, DOWN, buff=0.15)
+        self.add_fixed_in_frame_mobjects(y_demo_text)
+        self.play(FadeIn(y_demo_text), run_time=0.4)
+        
+        # Highlight Y-axis
+        self.play(y_axis.animate.set_color(WHITE), run_time=0.15)
+        self.play(y_axis.animate.set_color(palette["y"]), run_time=0.15)
+        
+        accel_group.save_state()
+        
+        # Y movement data - REALISTIC ACCELEROMETER BEHAVIOR:
+        # Same physics as X but for vertical motion
+        x_data_y = np.zeros(samples)
+        y_data_y = np.zeros(samples)
+        
+        # Movement 1: Accelerate up (+Y), then decelerate (still moving up)
+        # Acceleration phase: negative spike
+        y_data_y[8:18] = -1.2 * np.sin(np.linspace(0, PI, 10))
+        # Zero cross - constant velocity
+        y_data_y[18:25] = 0
+        # Deceleration phase: positive spike
+        y_data_y[25:35] = 1.2 * np.sin(np.linspace(0, PI, 10))
+        
+        # Movement 2: Accelerate down (-Y), then decelerate (still moving down)
+        # Acceleration phase: positive spike
+        y_data_y[50:60] = 1.2 * np.sin(np.linspace(0, PI, 10))
+        # Zero cross - constant velocity
+        y_data_y[60:67] = 0
+        # Deceleration phase: negative spike
+        y_data_y[67:77] = -1.2 * np.sin(np.linspace(0, PI, 10))
+        
+        z_data_y = -1.0 * np.ones(samples)
+        
+        # Create progress tracker for synchronized graph drawing
+        y_progress = ValueTracker(0)
+        
+        x_line2 = create_animated_graph_line(x_data_y, graph_axes_list[0], palette["x"], y_progress)
+        y_line2 = create_animated_graph_line(y_data_y, graph_axes_list[1], palette["y"], y_progress)
+        z_line2 = create_animated_graph_line(z_data_y, graph_axes_list[2], palette["z"], y_progress)
+        
+        # Movement 1: Move up (accelerate -> constant velocity -> decelerate)
+        self.play(
+            accel_group.animate.shift(UP * slide_distance * 0.4),
+            y_progress.animate.set_value(0.18),
+            rate_func=rate_functions.ease_out_quad,
+            run_time=0.7
+        )
+        self.play(
+            accel_group.animate.shift(UP * slide_distance * 0.4),
+            y_progress.animate.set_value(0.25),
+            rate_func=linear,
+            run_time=0.4
+        )
+        self.play(
+            accel_group.animate.shift(UP * slide_distance * 0.2),
+            y_progress.animate.set_value(0.35),
+            rate_func=rate_functions.ease_in_quad,
+            run_time=0.7
+        )
+        
+        # Return to center
+        self.play(
+            accel_group.animate.move_to(accel_center),
+            y_progress.animate.set_value(0.50),
+            run_time=0.5
+        )
+        
+        # Movement 2: Move down (accelerate -> constant velocity -> decelerate)
+        self.play(
+            accel_group.animate.shift(DOWN * slide_distance * 0.4),
+            y_progress.animate.set_value(0.60),
+            rate_func=rate_functions.ease_out_quad,
+            run_time=0.7
+        )
+        self.play(
+            accel_group.animate.shift(DOWN * slide_distance * 0.4),
+            y_progress.animate.set_value(0.67),
+            rate_func=linear,
+            run_time=0.4
+        )
+        self.play(
+            accel_group.animate.shift(DOWN * slide_distance * 0.2),
+            y_progress.animate.set_value(0.77),
+            rate_func=rate_functions.ease_in_quad,
+            run_time=0.7
+        )
+        
+        # Return to center and complete graph
+        self.play(
+            accel_group.animate.move_to(accel_center),
+            y_progress.animate.set_value(1.0),
+            run_time=0.5
+        )
+        
+        # Remove updaters
+        x_line2.clear_updaters()
+        y_line2.clear_updaters()
+        z_line2.clear_updaters()
+        
+        accel_group.restore()
+        accel_group.move_to(accel_center)
+        self.wait(0.4)
+        
+        # ============================================================
+        # SCENE 4: Z-AXIS DEMO - TILT (Gravity Redistribution) (17-23s)
+        # ============================================================
+        
+        self.play(
+            *[FadeOut(line) for line in [x_line2, y_line2, z_line2]],
+            FadeOut(y_demo_text),
+            run_time=0.3
+        )
+        
+        z_demo_text = Text("Z-Axis: Move Up ↑ ↓ Down", font_size=20, color=palette["z"])
+        z_demo_text.next_to(title, DOWN, buff=0.15)
+        self.add_fixed_in_frame_mobjects(z_demo_text)
+        self.play(FadeIn(z_demo_text), run_time=0.4)
+        
+        # Highlight Z-axis
+        self.play(z_axis.animate.set_color(WHITE), run_time=0.15)
+        self.play(z_axis.animate.set_color(palette["z"]), run_time=0.15)
+        
+        accel_group.save_state()
+        
+        # Z movement data - REALISTIC ACCELEROMETER BEHAVIOR:
+        # Moving along Z-axis (up/down through body of sensor)
+        # Gravity always contributes -1g baseline on Z
+        t_tilt = np.linspace(0, 5, samples)
+        x_data_z = np.zeros(samples)
+        y_data_z = np.zeros(samples)
+        z_data_z = -1.0 * np.ones(samples)  # Baseline gravity
+        
+        # Movement 1: Accelerate upward (+Z), then decelerate
+        # Acceleration upward: adds negative acceleration (opposite to motion) on top of -1g
+        z_data_z[8:18] = -1.0 - 1.0 * np.sin(np.linspace(0, PI, 10))  # Goes to -2g
+        # Zero cross - constant velocity (just gravity)
+        z_data_z[18:25] = -1.0
+        # Deceleration: adds positive acceleration on top of -1g
+        z_data_z[25:35] = -1.0 + 1.0 * np.sin(np.linspace(0, PI, 10))  # Goes to 0g
+        
+        # Movement 2: Accelerate downward (-Z), then decelerate
+        # Acceleration downward: adds positive (less negative total)
+        z_data_z[50:60] = -1.0 + 1.0 * np.sin(np.linspace(0, PI, 10))  # Goes to 0g
+        # Zero cross
+        z_data_z[60:67] = -1.0
+        # Deceleration: adds negative
+        z_data_z[67:77] = -1.0 - 1.0 * np.sin(np.linspace(0, PI, 10))  # Goes to -2g
+        
+        x_line3 = create_graph_line(x_data_z, graph_axes_list[0], palette["x"])
+        y_line3 = create_graph_line(y_data_z, graph_axes_list[1], palette["y"])
+        z_line3 = create_graph_line(z_data_z, graph_axes_list[2], palette["z"])
+        
+        # Create progress tracker for synchronized graph drawing
+        z_progress = ValueTracker(0)
+        
+        x_line3 = create_animated_graph_line(x_data_z, graph_axes_list[0], palette["x"], z_progress)
+        y_line3 = create_animated_graph_line(y_data_z, graph_axes_list[1], palette["y"], z_progress)
+        z_line3 = create_animated_graph_line(z_data_z, graph_axes_list[2], palette["z"], z_progress)
+        
+        # Movement 1: Move up along Z (accelerate -> constant velocity -> decelerate)
+        self.play(
+            accel_group.animate.shift(OUT * slide_distance * 0.4),
+            z_progress.animate.set_value(0.18),
+            rate_func=rate_functions.ease_out_quad,
+            run_time=0.7
+        )
+        self.play(
+            accel_group.animate.shift(OUT * slide_distance * 0.4),
+            z_progress.animate.set_value(0.25),
+            rate_func=linear,
+            run_time=0.4
+        )
+        self.play(
+            accel_group.animate.shift(OUT * slide_distance * 0.2),
+            z_progress.animate.set_value(0.35),
+            rate_func=rate_functions.ease_in_quad,
+            run_time=0.7
+        )
+        
+        # Return to center
+        self.play(
+            accel_group.animate.move_to(accel_center),
+            z_progress.animate.set_value(0.50),
+            run_time=0.5
+        )
+        
+        # Movement 2: Move down along Z (accelerate -> constant velocity -> decelerate)
+        self.play(
+            accel_group.animate.shift(IN * slide_distance * 0.4),
+            z_progress.animate.set_value(0.60),
+            rate_func=rate_functions.ease_out_quad,
+            run_time=0.7
+        )
+        self.play(
+            accel_group.animate.shift(IN * slide_distance * 0.4),
+            z_progress.animate.set_value(0.67),
+            rate_func=linear,
+            run_time=0.4
+        )
+        self.play(
+            accel_group.animate.shift(IN * slide_distance * 0.2),
+            z_progress.animate.set_value(0.77),
+            rate_func=rate_functions.ease_in_quad,
+            run_time=0.7
+        )
+        
+        # Return to center and complete graph
+        self.play(
+            accel_group.animate.move_to(accel_center),
+            z_progress.animate.set_value(1.0),
+            run_time=0.5
+        )
+        
+        # Remove updaters
+        x_line3.clear_updaters()
+        y_line3.clear_updaters()
+        z_line3.clear_updaters()
+        
+        accel_group.restore()
+        accel_group.move_to(accel_center)
+        self.wait(0.4)
+        
+        # ============================================================
+        # SCENE 5: COMBINED MOTION + SUMMARY (23-30s)
+        # ============================================================
+        
+        self.play(
+            *[FadeOut(line) for line in [x_line3, y_line3, z_line3]],
+            FadeOut(z_demo_text),
+            run_time=0.3
+        )
+        
+        combined_text = Text("Combined Motion: All Axes Respond", font_size=20, color="#a855f7")
+        combined_text.next_to(title, DOWN, buff=0.15)
+        self.add_fixed_in_frame_mobjects(combined_text)
+        self.play(FadeIn(combined_text), run_time=0.4)
+        
+        # Combined movement data - realistic acceleration spikes
+        # Simulate quick movements in different directions
+        x_comb = np.zeros(samples)
+        y_comb = np.zeros(samples)
+        z_comb = -1.0 * np.ones(samples)
+        
+        # X quick shake (accel/decel pairs)
+        x_comb[5:10] = -0.8 * np.sin(np.linspace(0, PI, 5))
+        x_comb[10:15] = 0.8 * np.sin(np.linspace(0, PI, 5))
+        x_comb[20:25] = 0.8 * np.sin(np.linspace(0, PI, 5))
+        x_comb[25:30] = -0.8 * np.sin(np.linspace(0, PI, 5))
+        
+        # Y quick movements
+        y_comb[35:40] = -0.6 * np.sin(np.linspace(0, PI, 5))
+        y_comb[40:45] = 0.6 * np.sin(np.linspace(0, PI, 5))
+        
+        # Z quick movements (on top of gravity)
+        z_comb[55:60] = -1.0 - 0.5 * np.sin(np.linspace(0, PI, 5))
+        z_comb[60:65] = -1.0 + 0.5 * np.sin(np.linspace(0, PI, 5))
+        z_comb[70:75] = -1.0 + 0.5 * np.sin(np.linspace(0, PI, 5))
+        z_comb[75:80] = -1.0 - 0.5 * np.sin(np.linspace(0, PI, 5))
+        
+        # Create progress tracker for synchronized graph drawing
+        comb_progress = ValueTracker(0)
+        
+        x_line4 = create_animated_graph_line(x_comb, graph_axes_list[0], palette["x"], comb_progress)
+        y_line4 = create_animated_graph_line(y_comb, graph_axes_list[1], palette["y"], comb_progress)
+        z_line4 = create_animated_graph_line(z_comb, graph_axes_list[2], palette["z"], comb_progress)
+        
+        # Quick combined motion - synchronized with graph
+        accel_group.save_state()
+        
+        # X movements (samples 5-30)
+        self.play(
+            accel_group.animate.shift(RIGHT * 0.3),
+            comb_progress.animate.set_value(0.15),
+            rate_func=rate_functions.ease_out_quad,
+            run_time=0.5
+        )
+        self.play(
+            accel_group.animate.shift(LEFT * 0.6),
+            comb_progress.animate.set_value(0.30),
+            rate_func=there_and_back,
+            run_time=0.6
+        )
+        
+        # Y movements (samples 35-45)
+        self.play(
+            accel_group.animate.shift(UP * 0.25),
+            comb_progress.animate.set_value(0.45),
+            rate_func=rate_functions.ease_out_quad,
+            run_time=0.5
+        )
+        self.play(
+            accel_group.animate.shift(DOWN * 0.25),
+            comb_progress.animate.set_value(0.55),
+            rate_func=rate_functions.ease_in_quad,
+            run_time=0.4
+        )
+        
+        # Z movements (samples 55-80)
+        self.play(
+            accel_group.animate.shift(OUT * 0.2),
+            comb_progress.animate.set_value(0.65),
+            rate_func=rate_functions.ease_out_quad,
+            run_time=0.4
+        )
+        self.play(
+            accel_group.animate.shift(IN * 0.4),
+            comb_progress.animate.set_value(0.80),
+            rate_func=there_and_back,
+            run_time=0.5
+        )
+        
+        # Complete graph
+        self.play(
+            accel_group.animate.move_to(accel_center),
+            comb_progress.animate.set_value(1.0),
+            run_time=0.4
+        )
+        
+        # Remove updaters
+        x_line4.clear_updaters()
+        y_line4.clear_updaters()
+        z_line4.clear_updaters()
+        
+        accel_group.restore()
+        accel_group.move_to(accel_center)
+        
+        # Summary
+        self.play(FadeOut(combined_text), run_time=0.3)
         
         summary_text = Text(
-            "Raw Acceleration = Gravity + Motion",
+            "Acceleration = Gravity + Motion",
             font_size=24,
             color="#fbbf24",
             weight=BOLD
@@ -438,27 +660,13 @@ class AccelerometerFull(ThreeDScene):
         summary_text.to_edge(DOWN, buff=0.5)
         self.add_fixed_in_frame_mobjects(summary_text)
         
-        self.play(FadeIn(summary_text, shift=UP * 0.2), run_time=1)
+        self.play(FadeIn(summary_text, shift=UP * 0.2), run_time=0.8)
         
-        # Final pulse on device (tease data flow)
-        self.play(
-            cube.animate.set_stroke(color="#fbbf24", width=4),
-            run_time=0.3
-        )
-        self.play(
-            cube.animate.set_stroke(color=WHITE, width=2.5),
-            run_time=0.3
-        )
-        self.play(
-            cube.animate.set_stroke(color="#fbbf24", width=4),
-            run_time=0.3
-        )
-        self.play(
-            cube.animate.set_stroke(color=WHITE, width=2.5),
-            run_time=0.3
-        )
+        # Final pulse
+        self.play(cube.animate.set_stroke(color="#fbbf24", width=4), run_time=0.25)
+        self.play(cube.animate.set_stroke(color=WHITE, width=2.5), run_time=0.25)
+        self.play(cube.animate.set_stroke(color="#fbbf24", width=4), run_time=0.25)
+        self.play(cube.animate.set_stroke(color=WHITE, width=2.5), run_time=0.25)
         
-        # Camera slowly pulls back
-        self.move_camera(phi=55 * DEGREES, theta=-55 * DEGREES, run_time=1.5)
-        
+        self.move_camera(phi=55 * DEGREES, theta=-55 * DEGREES, run_time=1.2)
         self.wait(0.5)
